@@ -1,3 +1,4 @@
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.logging.Logger;
 
@@ -23,7 +24,7 @@ public class Consumer implements Runnable {
             while (true) {
                 for(int partition = 0; partition < numPartitions; partition++) {
                     while (offsets[partition] < topic.getPartitionSize(partition)) {
-                        Message message = topic.consume(consumerId, partition, offsets[partition]);
+                        Optional<Message> message = topic.consume(consumerId);
                         if(message != null){
                             offsets[partition]++;
                         }
