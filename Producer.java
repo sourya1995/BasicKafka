@@ -19,12 +19,12 @@ public class Producer implements Runnable {
                 String messageContent = producerName + "message" + i;
                 Message message = new Message(messageContent);
                 queue.put(message);
-                System.out.println("Produced" + message);
+                LOGGER.info(() -> "Produced message: " + message);
                 Thread.sleep(1000);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOGGER.severe(() -> "Producer interrupted");
+            LOGGER.severe(() -> "Producer interrupted with Exception" + e);
         }
     }
 
