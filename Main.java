@@ -5,12 +5,18 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 public class Main {
     public static void main(String[] args) {
-        BlockingQueue<Message> queue = new LinkedBlockingQueue<>();
-        ExecutorService executor = Executors.newFixedThreadPool(2);
+        int numPartitions = 3;
+        Topic topic = new Topic("myTopic", numPartitions);
 
-        executor.submit(new Producer("Producer 1", queue));
+        ExecutorService executor = Executors.newFixedThreadPool(4);
 
-        executor.submit(new Consumer("Consumer 1", queue));
+        // Start producers
+        executor.submit(new Producer("Producer1", topic, numPartitions));
+        executor.submit(new Producer("Producer2", topic, numPartitions));
+
+        // Start consumers
+        executor.submit(new Consumer("Consumer1", topic, numPartitions));
+        executor.submit(new Consumer("Consumer2", topic, numPartitions));
 
         executor.shutdown();
     }

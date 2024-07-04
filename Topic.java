@@ -37,5 +37,9 @@ public class Topic {
         return message;
     }
 
+    public int getPartitionSize(int partition) {
+        return numPartitions;
+    }
+
     
 }

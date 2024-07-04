@@ -4,22 +4,23 @@ import java.util.logging.Logger;
 public class Producer implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(Producer.class.getName());
-    private BlockingQueue<Message> queue;
-    private String producerName;
+    private String producerId;
+    private Topic topic;
+    private int numPartitions;
 
-    public Producer(String producerName, BlockingQueue<Message> queue) {
-        this.producerName = producerName;
-        this.queue = queue;
+    public Producer(String producerId, Topic topic, int numPartitions) {
+        this.producerId = producerId;
+        this.topic = topic;
+        this.numPartitions = numPartitions;
     }
 
     @Override
     public void run() {
         try {
             for (int i = 0; i < 10; i++) {
-                String messageContent = producerName + "message" + i;
-                Message message = new Message(messageContent);
-                queue.put(message);
-                LOGGER.info(() -> "Produced message: " + message);
+                String messageContent = producerId + "message" + i;
+                topic.produce(messageContent);
+                LOGGER.info(() -> "Produced message: ");
                 Thread.sleep(1000);
             }
         } catch (InterruptedException e) {

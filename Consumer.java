@@ -4,25 +4,37 @@ import java.util.logging.Logger;
 public class Consumer implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(Consumer.class.getName());
-    private BlockingQueue<Message> queue;
-    private String consumerName;
+    private String consumerId;
+    private Topic topic;
+    private int numPartitions;
+    private int[] offsets;
 
-    public Consumer(String consumerName, BlockingQueue<Message> queue) {
-        this.consumerName = consumerName;
-        this.queue = queue;
+    public Consumer(String consumerId, Topic topic, int numPartitions) {
+        this.consumerId = consumerId;
+        this.topic = topic;
+        this.numPartitions = numPartitions;
+        this.offsets = new int[numPartitions];
     }
+
 
     @Override
     public void run() {
         try {
             while (true) {
-                Message message = queue.take();
-                LOGGER.info(() -> consumerName + "consumed" + message);
-                Thread.sleep(2000);
+                for(int partition = 0; partition < numPartitions; partition++) {
+                    while (offsets[partition] < topic.getPartitionSize(partition)) {
+                        Message message = topic.consume(consumerId, partition, offsets[partition]);
+                        if(message != null){
+                            offsets[partition]++;
+                        }
+                        Thread.sleep(1000);
+                    }
             }
-        } catch (InterruptedException e) {
+            Thread.sleep(2000);
+        } 
+        }catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOGGER.severe(() -> consumerName + "interrupted with exception" + e);
+            LOGGER.severe(() -> consumerId + "interrupted with exception" + e);
         }
     }
 
