@@ -1,23 +1,32 @@
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.*;
 
 public class Main {
     public static void main(String[] args) {
         int numPartitions = 3;
         Topic topic = new Topic("myTopic", numPartitions);
 
-        ExecutorService executor = Executors.newFixedThreadPool(4);
+        try (ScheduledExecutorService executor = Executors.newScheduledThreadPool(6)) {
 
-        // Start producers
-        executor.submit(new Producer("Producer1", topic, numPartitions));
-        executor.submit(new Producer("Producer2", topic, numPartitions));
+            // Start producers
+            for (int i = 1; i <= 2; i++) {
+                executor.submit(new Producer("Producer" + i, topic, numPartitions, executor));
+            }
 
-        // Start consumers
-        executor.submit(new Consumer("Consumer1", topic, numPartitions));
-        executor.submit(new Consumer("Consumer2", topic, numPartitions));
+            // Start consumers
+            for (int i = 1; i <= 4; i++) {
+                executor.submit(new Consumer("Consumer" + i, topic, numPartitions, executor));
+            }
 
-        executor.shutdown();
+            // Simulate scaling up and down
+            executor.schedule(() -> {
+                for (int i = 3; i <= 5; i++) {
+                    executor.submit(new Producer("Producer" + i, topic, numPartitions, executor));
+                }
+            }, 30, TimeUnit.SECONDS);
+
+            executor.shutdown();
+
+            executor.shutdown();
+        }
     }
 }
