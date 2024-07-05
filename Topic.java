@@ -9,28 +9,53 @@ public class Topic {
     private static final Logger LOGGER = Logger.getLogger(Topic.class.getName());
     private String name;
     private int numPartitions;
+    private int numReplicas;
     private BlockingQueue<Message>[] partitions;
     private int[][] consumerOffsets;
+    private BlockingQueue<Message>[] replicaPartitions;
 
     @SuppressWarnings("unchecked")
-    public Topic(String name, int numPartitions) {
+    public Topic(String name, int numPartitions, int numReplicas) {
         this.name = name;
         this.numPartitions = numPartitions;
+        this.numReplicas = numReplicas;
         this.partitions = new LinkedBlockingQueue[numPartitions];
         this.consumerOffsets = new int[numPartitions][];
+        this.replicaPartitions = new LinkedBlockingQueue[numPartitions * numReplicas];
         for (int i = 0; i < numPartitions; i++) {
             partitions[i] = new LinkedBlockingQueue<>();
             consumerOffsets[i] = new int[0];
+
+            for (int j = 0; j < numReplicas; j++) {
+                replicaPartitions[i * numReplicas + j] = new LinkedBlockingQueue<>();
+            }
         }
+
     }
 
     public boolean produce(String messageContent, int partition) {
         Message message = new Message(messageContent);
         try {
-            return partitions[partition].offer(message, 100, TimeUnit.MILLISECONDS);
+            boolean success = partitions[partition].offer(message, 100, TimeUnit.MILLISECONDS);
+            if (success) {
+                replicateMessage(message, partition);
+            }
+            return success;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            LOGGER.severe(() -> "Exception" + e);
             return false;
+        }
+    }
+
+    private void replicateMessage(Message message, int partition) {
+        for (int replica = 0; replica < replicaPartitions.length / numPartitions; replica++) {
+            try {
+                replicaPartitions[partition * numReplicas + replica].put(message);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.severe(() -> "Exception" + e);
+            }
         }
     }
 
@@ -92,18 +117,19 @@ public class Topic {
         return optionalMessage.orElse(null);
     }
 
-    public void commitOffset(String consumerId, int partition, int offset){
+    public void commitOffset(String consumerId, int partition, int offset) {
         int[] offsets = consumerOffsets[partition];
-        if(offset < offsets.length && offsets[offset] == 0){
-            offsets[offset] = 1; //commit offset
+        if (offset < offsets.length && offsets[offset] == 0) {
+            offsets[offset] = 1; // commit offset
         }
     }
 
-    public int getConsumerOffset(String consumerId, int partition){
-        return consumerOffsets[partition].length > 0 ? consumerOffsets[partition][consumerOffsets[partition].length - 1] : 0;
+    public int getConsumerOffset(String consumerId, int partition) {
+        return consumerOffsets[partition].length > 0 ? consumerOffsets[partition][consumerOffsets[partition].length - 1]
+                : 0;
     }
 
-    public void updateConsumerOffset(String consumerId, int partition, int offset){
+    public void updateConsumerOffset(String consumerId, int partition, int offset) {
         int[] offsets = consumerOffsets[partition];
         int[] newOffsets = new int[offsets.length + 1];
         System.arraycopy(offsets, 0, newOffsets, 0, offsets.length);

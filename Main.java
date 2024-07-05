@@ -3,7 +3,8 @@ import java.util.concurrent.*;
 public class Main {
     public static void main(String[] args) {
         int numPartitions = 3;
-        Topic topic = new Topic("myTopic", numPartitions);
+        int numReplicas = 2;
+        Topic topic = new Topic("myTopic", numPartitions, numReplicas);
 
         try (ScheduledExecutorService executor = Executors.newScheduledThreadPool(10)) {
 
