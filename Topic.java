@@ -13,6 +13,7 @@ public class Topic {
     private BlockingQueue<Message>[] partitions;
     private int[][] consumerOffsets;
     private BlockingQueue<Message>[] replicaPartitions;
+    private boolean[] isLeader;
 
     @SuppressWarnings("unchecked")
     public Topic(String name, int numPartitions, int numReplicas) {
@@ -22,12 +23,14 @@ public class Topic {
         this.partitions = new LinkedBlockingQueue[numPartitions];
         this.consumerOffsets = new int[numPartitions][];
         this.replicaPartitions = new LinkedBlockingQueue[numPartitions * numReplicas];
+        this.isLeader = new boolean[numPartitions * numReplicas];
         for (int i = 0; i < numPartitions; i++) {
             partitions[i] = new LinkedBlockingQueue<>();
             consumerOffsets[i] = new int[0];
 
             for (int j = 0; j < numReplicas; j++) {
                 replicaPartitions[i * numReplicas + j] = new LinkedBlockingQueue<>();
+                isLeader[i * numReplicas + j] = (j  == 0);
             }
         }
 
@@ -35,10 +38,11 @@ public class Topic {
 
     public boolean produce(String messageContent, int partition) {
         Message message = new Message(messageContent);
+        int partition = getPartition(messageContent);
         try {
-            boolean success = partitions[partition].offer(message, 100, TimeUnit.MILLISECONDS);
+            boolean success = forwardToLeader(message, partition);
             if (success) {
-                replicateMessage(message, partition);
+                acknowledgeMessage(message, partition);
             }
             return success;
         } catch (InterruptedException e) {
@@ -48,7 +52,19 @@ public class Topic {
         }
     }
 
-    private void replicateMessage(Message message, int partition) {
+    private boolean forwardToLeader(Message message, int partition){
+        try {
+            int leaderIndex = partition * replicaPartitions.length / numPartitions;
+            boolean sent = replicaPartitions[leaderIndex].offer(message, 10, TimeUnit.MILLISECONDS);
+            return sent;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.severe(() -> "Exception" + e);
+            return false;
+        }
+    }
+
+   /*  private void replicateMessage(Message message, int partition) {
         for (int replica = 0; replica < replicaPartitions.length / numPartitions; replica++) {
             try {
                 replicaPartitions[partition * numReplicas + replica].put(message);
@@ -58,7 +74,7 @@ public class Topic {
             }
         }
     }
-
+ */
     /*
      * public Optional<Message> consume(String consumerId, int partition, int
      * offset) {
@@ -86,6 +102,10 @@ public class Topic {
      * // the specified offset
      * }
      */
+
+    private void acknowledgeMessage(Message message, int partition){
+        LOGGER.info(() -> "Message acknowledged:" + message);
+    }
 
     public Optional<Message> consume(String consumerId, int partition, int offset) {
         int targetPartition = Math.abs(consumerId.hashCode()) % numPartitions;
@@ -115,6 +135,10 @@ public class Topic {
         });
 
         return optionalMessage.orElse(null);
+    }
+
+    public int getPartition(String key){
+        return Math.abs(key.hashCode()) % numPartitions;
     }
 
     public void commitOffset(String consumerId, int partition, int offset) {
