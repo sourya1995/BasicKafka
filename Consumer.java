@@ -26,8 +26,9 @@ public class Consumer implements Runnable {
             while (true) {
                 for (int partition = 0; partition < numPartitions; partition++) {
                     while (offsets[partition] < topic.getPartitionSize(partition)) {
-                        Optional<Message> message = topic.consume(consumerId);
+                        Optional<Message> message = topic.consume(consumerId, partition, offsets[partition]);
                         if (message != null) {
+                            processMessage(message);
                             offsets[partition]++;
                         }
                         Thread.sleep(1000);
@@ -41,30 +42,53 @@ public class Consumer implements Runnable {
         }
     }
 
-    private void processMessage(Message message) {
+    private void processMessage(Optional<Message> message) {
         LOGGER.info(() -> "COnsumer" + consumerId + "processed message" + message);
 
         if (Math.random() < 0.1) {
             LOGGER.warning(() -> "error processing message");
             handleProcessingError(message);
+        } else{
+            acknowledgeMessage(message);
         }
     }
 
-    private void handleProcessingError(Message message) {
+    // Utility method to safely retrieve the partition from an Optional<Message>
+    private int getMessagePartition(Optional<Message> messageOptional) {
+        if (messageOptional.isPresent()) {
+            return messageOptional.get().getPartition();
+        } else {
+            throw new IllegalStateException("No message present in Optional");
+        }
+    }
+
+    private void handleProcessingError(Optional<Message> messageOptional) {
         LOGGER.warning(() -> "retrying processing message");
+        int partition = getMessagePartition(messageOptional);
+        offsets[partition]--;
 
         Runnable retryTask = () -> {
             try {
                 Thread.sleep(1000);
-                processMessage(message);
+                processMessage(messageOptional); // Ensure this also handles Optional correctly
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
                 LOGGER.severe(() -> "Exception" + ex);
-
             }
         };
 
         executorService.submit(retryTask);
+    }
+
+    private void acknowledgeMessage(Optional<Message> message) {
+        // Simulate acknowledging the message (committing offset)
+        if (message.isPresent()) {
+            Message msg = message.get();
+            LOGGER.info(() -> "Consumer '" + consumerId + "' acknowledged message: " + msg);
+            topic.commitOffset(consumerId, msg.getPartition(), offsets[msg.getPartition()]);
+        } else {
+            LOGGER.warning(() -> "Acknowledging failed because message was not present.");
+        }
     }
 
 }

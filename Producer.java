@@ -7,11 +7,13 @@ public class Producer implements Runnable {
     private static final Logger LOGGER = Logger.getLogger(Producer.class.getName());
     private String producerId;
     private Topic topic;
+    private int numPartitions;
     private ExecutorService executorService;
 
     public Producer(String producerId, Topic topic, int numPartitions, ExecutorService executorService) {
         this.producerId = producerId;
         this.topic = topic;
+        this.numPartitions = numPartitions;
         this.executorService = executorService;
     }
 
@@ -34,7 +36,7 @@ public class Producer implements Runnable {
     }
 
     private boolean sendMessage(Message message) {
-        int partition = 0;
+        int partition = Math.abs(message.getContent().hashCode()) % numPartitions;
         try {
             boolean acknowledged = topic.produce(message.getContent(), partition);
             if(!acknowledged){

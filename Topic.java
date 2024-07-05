@@ -9,6 +9,7 @@ public class Topic {
     private String name;
     private int numPartitions;
     private BlockingQueue<Message>[] partitions;
+    private int[][] consumerOffsets;
 
     @SuppressWarnings("unchecked")
     public Topic(String name, int numPartitions) {
@@ -17,19 +18,19 @@ public class Topic {
         this.partitions = new LinkedBlockingQueue[numPartitions];
         for (int i = 0; i < numPartitions; i++) {
             partitions[i] = new LinkedBlockingQueue<>();
+            consumerOffsets[i] = new int[0];
         }
     }
 
     public boolean produce(String messageContent, int partition) {
-        partition = Math.abs(messageContent.hashCode()) % numPartitions;
         Message message = new Message(messageContent);
-        if (partitions[partition].offer(message)) {
-            LOGGER.info("Produced to topic" + name + "partition" + partition + ":" + message);
+        try {
+            partitions[partition].put(message);
             return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
-
-        return false;
-
     }
 
     /*
@@ -60,17 +61,18 @@ public class Topic {
      * }
      */
 
-    public Optional<Message> consume(String consumerId) {
-        int partition = Math.abs(consumerId.hashCode()) % numPartitions;
-        BlockingQueue<Message> partitionQueue = partitions[partition];
-
-        try {
-            Message message = partitionQueue.poll(); // Poll to retrieve and remove the head of the queue
-            if (message != null) {
-                return Optional.ofNullable(message);
+    public Optional<Message> consume(String consumerId, int partition, int offset) {
+        int targetPartition = Math.abs(consumerId.hashCode()) % numPartitions;
+        BlockingQueue<Message> partitionQueue = partitions[targetPartition]; // Use renamed variable here
+        if (offset < consumerOffsets[targetPartition].length) { // And here
+            try {
+                Message message = partitionQueue.poll(); // Poll to retrieve and remove the head of the queue
+                if (message != null) {
+                    return Optional.ofNullable(message);
+                }
+            } catch (Exception e) {
+                LOGGER.severe(() -> "could not consume message: " + e.getMessage());
             }
-        } catch (Exception e) {
-            LOGGER.severe(() -> "could not consume message: " + e.getMessage());
         }
 
         return Optional.empty(); // Return an empty Optional if no message is available
@@ -87,6 +89,13 @@ public class Topic {
         });
 
         return optionalMessage.orElse(null);
+    }
+
+    public void commitOffset(String consumerId, int partition, int offset){
+        int[] offsets = consumerOffsets[partition];
+        if(offset < offsets.length && offsets[offset] == 0){
+            offsets[offset] = 1; //commit offset
+        }
     }
 
     public int getPartitionSize(int partition) {
