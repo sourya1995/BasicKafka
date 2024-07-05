@@ -5,7 +5,7 @@ public class Main {
         int numPartitions = 3;
         Topic topic = new Topic("myTopic", numPartitions);
 
-        try (ScheduledExecutorService executor = Executors.newScheduledThreadPool(6)) {
+        try (ScheduledExecutorService executor = Executors.newScheduledThreadPool(10)) {
 
             // Start producers
             for (int i = 1; i <= 2; i++) {

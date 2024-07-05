@@ -1,6 +1,7 @@
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 import java.util.Optional;
 
@@ -16,6 +17,7 @@ public class Topic {
         this.name = name;
         this.numPartitions = numPartitions;
         this.partitions = new LinkedBlockingQueue[numPartitions];
+        this.consumerOffsets = new int[numPartitions][];
         for (int i = 0; i < numPartitions; i++) {
             partitions[i] = new LinkedBlockingQueue<>();
             consumerOffsets[i] = new int[0];
@@ -25,8 +27,7 @@ public class Topic {
     public boolean produce(String messageContent, int partition) {
         Message message = new Message(messageContent);
         try {
-            partitions[partition].put(message);
-            return true;
+            return partitions[partition].offer(message, 100, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
@@ -96,6 +97,18 @@ public class Topic {
         if(offset < offsets.length && offsets[offset] == 0){
             offsets[offset] = 1; //commit offset
         }
+    }
+
+    public int getConsumerOffset(String consumerId, int partition){
+        return consumerOffsets[partition].length > 0 ? consumerOffsets[partition][consumerOffsets[partition].length - 1] : 0;
+    }
+
+    public void updateConsumerOffset(String consumerId, int partition, int offset){
+        int[] offsets = consumerOffsets[partition];
+        int[] newOffsets = new int[offsets.length + 1];
+        System.arraycopy(offsets, 0, newOffsets, 0, offsets.length);
+        newOffsets[offsets.length] = offset;
+        consumerOffsets[partition] = newOffsets;
     }
 
     public int getPartitionSize(int partition) {

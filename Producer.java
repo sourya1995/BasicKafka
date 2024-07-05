@@ -24,7 +24,7 @@ public class Producer implements Runnable {
                 String messageContent = producerId + "message" + i;
                 Message message = new Message(messageContent);
                 boolean sent = false;
-                while(!sent){
+                while (!sent) {
                     sent = sendMessage(message);
                 }
                 Thread.sleep(1000);
@@ -37,19 +37,22 @@ public class Producer implements Runnable {
 
     private boolean sendMessage(Message message) {
         int partition = Math.abs(message.getContent().hashCode()) % numPartitions;
-        try {
-            boolean acknowledged = topic.produce(message.getContent(), partition);
-            if(!acknowledged){
+        executorService.submit(() -> {
+            try {
+                boolean acknowledged = topic.produce(message.getContent(), partition);
+                if (!acknowledged) {
+                    handleDeliveryFailure(message, partition);
+                    return false;
+                }
+                LOGGER.info("Produced to topic" + topic.getName() + "partition: " + partition + ":" + message);
+                return true;
+            } catch (Exception e) {
+                LOGGER.severe(() -> "Error Sending message:" + "Exception" + e);
                 handleDeliveryFailure(message, partition);
                 return false;
             }
-            LOGGER.info("Produced to topic" + topic.getName() + "partition: " + partition + ":" + message);
-            return true;
-        }catch(Exception e){
-            LOGGER.severe(() -> "Error Sending message:" + "Exception" + e);
-            handleDeliveryFailure(message, partition);
-            return false;
-        }
+        });
+        return false;
     }
 
     private void handleDeliveryFailure(Message message, int partition) {
@@ -68,6 +71,5 @@ public class Producer implements Runnable {
 
         executorService.submit(retryTask);
     }
-
 
 }
