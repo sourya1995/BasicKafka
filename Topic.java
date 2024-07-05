@@ -1,5 +1,7 @@
 
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
@@ -14,6 +16,7 @@ public class Topic {
     private int[][] consumerOffsets;
     private BlockingQueue<Message>[] replicaPartitions;
     private boolean[] isLeader;
+    private ExecutorService leaderExecutor;
 
     @SuppressWarnings("unchecked")
     public Topic(String name, int numPartitions, int numReplicas) {
@@ -24,39 +27,58 @@ public class Topic {
         this.consumerOffsets = new int[numPartitions][];
         this.replicaPartitions = new LinkedBlockingQueue[numPartitions * numReplicas];
         this.isLeader = new boolean[numPartitions * numReplicas];
+        this.leaderExecutor = Executors.newFixedThreadPool(numPartitions);
         for (int i = 0; i < numPartitions; i++) {
             partitions[i] = new LinkedBlockingQueue<>();
             consumerOffsets[i] = new int[0];
 
             for (int j = 0; j < numReplicas; j++) {
                 replicaPartitions[i * numReplicas + j] = new LinkedBlockingQueue<>();
-                isLeader[i * numReplicas + j] = (j  == 0);
+                isLeader[i * numReplicas + j] = (j == 0);
             }
+
+            startLeaderTask(i);
         }
 
+    }
+
+    private void startLeaderTask(int partition) {
+        leaderExecutor.submit(() -> {
+            while (true) {
+                try {
+                    if (isLeader[partition]) {
+                        replicateMessages(partition);
+                    }
+                    Thread.sleep(1000);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    LOGGER.severe(() -> "Exception" + ex);
+                    break;
+                }
+            }
+        });
     }
 
     public boolean produce(String messageContent, int partition) {
         Message message = new Message(messageContent);
-        int partition = getPartition(messageContent);
+        int targetPartition = getPartition(messageContent);
         try {
-            boolean success = forwardToLeader(message, partition);
+            boolean success = forwardToLeader(message, targetPartition);
             if (success) {
                 acknowledgeMessage(message, partition);
             }
             return success;
-        } catch (InterruptedException e) {
+        } catch (Exception e) {
             Thread.currentThread().interrupt();
             LOGGER.severe(() -> "Exception" + e);
             return false;
         }
     }
 
-    private boolean forwardToLeader(Message message, int partition){
+    private boolean forwardToLeader(Message message, int partition) {
         try {
             int leaderIndex = partition * replicaPartitions.length / numPartitions;
-            boolean sent = replicaPartitions[leaderIndex].offer(message, 10, TimeUnit.MILLISECONDS);
-            return sent;
+            return replicaPartitions[leaderIndex].offer(message, 10, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOGGER.severe(() -> "Exception" + e);
@@ -64,8 +86,8 @@ public class Topic {
         }
     }
 
-   /*  private void replicateMessage(Message message, int partition) {
-        for (int replica = 0; replica < replicaPartitions.length / numPartitions; replica++) {
+    private void replicateToFollowers(Message message, int partition) {
+        for (int replica = 1; replica < replicaPartitions.length / numPartitions; replica++) {
             try {
                 replicaPartitions[partition * numReplicas + replica].put(message);
             } catch (InterruptedException e) {
@@ -74,7 +96,34 @@ public class Topic {
             }
         }
     }
- */
+
+    private void replicateMessages(int partition) {
+        while (true) {
+            try {
+                Message message = replicaPartitions[partition].poll(100, TimeUnit.MILLISECONDS);
+                if (message != null) {
+                    replicateToFollowers(message, partition);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.severe(() -> "Exception" + e);
+            }
+        }
+    }
+
+    /*
+     * private void replicateMessage(Message message, int partition) {
+     * for (int replica = 0; replica < replicaPartitions.length / numPartitions;
+     * replica++) {
+     * try {
+     * replicaPartitions[partition * numReplicas + replica].put(message);
+     * } catch (InterruptedException e) {
+     * Thread.currentThread().interrupt();
+     * LOGGER.severe(() -> "Exception" + e);
+     * }
+     * }
+     * }
+     */
     /*
      * public Optional<Message> consume(String consumerId, int partition, int
      * offset) {
@@ -103,7 +152,7 @@ public class Topic {
      * }
      */
 
-    private void acknowledgeMessage(Message message, int partition){
+    private void acknowledgeMessage(Message message, int partition) {
         LOGGER.info(() -> "Message acknowledged:" + message);
     }
 
@@ -137,7 +186,7 @@ public class Topic {
         return optionalMessage.orElse(null);
     }
 
-    public int getPartition(String key){
+    public int getPartition(String key) {
         return Math.abs(key.hashCode()) % numPartitions;
     }
 
@@ -167,6 +216,10 @@ public class Topic {
 
     public String getName() {
         return name;
+    }
+
+    public void shutdown() {
+        leaderExecutor.shutdownNow();
     }
 
 }
