@@ -1,3 +1,4 @@
+package Kafka;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -128,47 +129,6 @@ public class Topic {
             }
         }
     }
-
-    /*
-     * private void replicateMessage(Message message, int partition) {
-     * for (int replica = 0; replica < replicaPartitions.length / numPartitions;
-     * replica++) {
-     * try {
-     * replicaPartitions[partition * numReplicas + replica].put(message);
-     * } catch (InterruptedException e) {
-     * Thread.currentThread().interrupt();
-     * LOGGER.severe(() -> "Exception" + e);
-     * }
-     * }
-     * }
-     */
-    /*
-     * public Optional<Message> consume(String consumerId, int partition, int
-     * offset) {
-     * // Check if the partition exists and has enough messages
-     * if (partition >= 0 && partition < partitions.length &&
-     * partitions[partition].size() > offset) {
-     * // Attempt to retrieve the message at the specified offset
-     * try {
-     * Message message = partitions[partition].peek(offset); // Use peek(offset) if
-     * available, otherwise
-     * // poll(offset)
-     * if (message != null) {
-     * return Optional.ofNullable(message);
-     * } else {
-     * return Optional.empty();
-     * }
-     * } catch (Exception e) {
-     * // Handle exceptions, possibly logging them
-     * System.err.println("Error consuming message: " + e.getMessage());
-     * return Optional.empty();
-     * }
-     * }
-     * return Optional.empty(); // Return an empty Optional if the partition is
-     * invalid or there's no message at
-     * // the specified offset
-     * }
-     */
 
     private boolean acknowledgeMessage(Message message, int partition) {
         LOGGER.info(() -> "Message acknowledged:" + message);
