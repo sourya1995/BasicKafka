@@ -1,10 +1,18 @@
 
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.Optional;
 
 public class Topic {
@@ -17,6 +25,8 @@ public class Topic {
     private BlockingQueue<Message>[] replicaPartitions;
     private boolean[] isLeader;
     private ExecutorService leaderExecutor;
+    private ConcurrentHashMap<String, Long> messageLog;
+    private AtomicInteger messageId;
 
     @SuppressWarnings("unchecked")
     public Topic(String name, int numPartitions, int numReplicas) {
@@ -28,6 +38,8 @@ public class Topic {
         this.replicaPartitions = new LinkedBlockingQueue[numPartitions * numReplicas];
         this.isLeader = new boolean[numPartitions * numReplicas];
         this.leaderExecutor = Executors.newFixedThreadPool(numPartitions);
+        this.messageLog = new ConcurrentHashMap<>();
+        this.messageId = new AtomicInteger(0);
         for (int i = 0; i < numPartitions; i++) {
             partitions[i] = new LinkedBlockingQueue<>();
             consumerOffsets[i] = new int[0];
@@ -60,12 +72,17 @@ public class Topic {
     }
 
     public boolean produce(String messageContent, int partition) {
-        Message message = new Message(messageContent);
+        Message message = new Message(messageContent, messageId.incrementAndGet());
+
         int targetPartition = getPartition(messageContent);
+        persistMessage(message, targetPartition);
         try {
             boolean success = forwardToLeader(message, targetPartition);
             if (success) {
-                acknowledgeMessage(message, partition);
+                boolean acknowledged = acknowledgeMessage(message, partition);
+                if (!acknowledged) {
+                    retryAcknowledge(message, targetPartition);
+                }
             }
             return success;
         } catch (Exception e) {
@@ -107,6 +124,7 @@ public class Topic {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 LOGGER.severe(() -> "Exception" + e);
+                break;
             }
         }
     }
@@ -152,8 +170,42 @@ public class Topic {
      * }
      */
 
-    private void acknowledgeMessage(Message message, int partition) {
+    private boolean acknowledgeMessage(Message message, int partition) {
         LOGGER.info(() -> "Message acknowledged:" + message);
+        return true;
+    }
+
+    private void persistMessage(Message message, int partition) {
+        try (FileWriter fw = new FileWriter(name + "-partition-" + partition + ".log", true);
+                BufferedWriter bw = new BufferedWriter(fw);
+                PrintWriter out = new PrintWriter(bw)) {
+            out.println(message.getId() + ":" + message.getContent());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        messageLog.put(message.getId() + "-" + partition, System.currentTimeMillis());
+    }
+
+    public void recover() {
+        for (int i = 0; i < numPartitions; i++) {
+            recoverPartition(i);
+        }
+    }
+
+    private void recoverPartition(int partition) {
+        try (BufferedReader br = new BufferedReader(new FileReader(name + "-partition-" + partition + ".log"))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(":");
+                int messageId = Integer.parseInt(parts[0]);
+                String content = parts[1];
+                Message message = new Message(content, messageId);
+                partitions[partition].put(message);
+                messageLog.put(messageId + "-" + partition, System.currentTimeMillis());
+            }
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 
     public Optional<Message> consume(String consumerId, int partition, int offset) {
@@ -184,6 +236,26 @@ public class Topic {
         });
 
         return optionalMessage.orElse(null);
+    }
+
+    private void retryAcknowledge(Message message, int partition) {
+        int retries = 0;
+        int maxRetries = 5;
+        long backoffTime = 100;
+
+        while (retries < maxRetries) {
+            if (acknowledgeMessage(message, partition)) {
+                break;
+            }
+            retries++;
+            try {
+                Thread.sleep(backoffTime);
+                backoffTime *= 2; // Exponential backoff
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.severe(() -> "Exception" + e);
+            }
+        }
     }
 
     public int getPartition(String key) {

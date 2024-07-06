@@ -22,7 +22,7 @@ public class Producer implements Runnable {
         try {
             for (int i = 0; i < 10; i++) {
                 String messageContent = producerId + "message" + i;
-                Message message = new Message(messageContent);
+                Message message = new Message(messageContent, i);
                 boolean sent = false;
                 while (!sent) {
                     sent = sendMessage(message);

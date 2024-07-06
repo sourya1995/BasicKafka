@@ -6,6 +6,9 @@ public class Main {
         int numReplicas = 2;
         Topic topic = new Topic("myTopic", numPartitions, numReplicas);
 
+        topic.produce("Hello, world!", 2);
+        topic.produce("Hello, world again!", 3);
+
         try (ScheduledExecutorService executor = Executors.newScheduledThreadPool(10)) {
 
             // Start producers
@@ -24,6 +27,8 @@ public class Main {
                     executor.submit(new Producer("Producer" + i, topic, numPartitions, executor));
                 }
             }, 30, TimeUnit.SECONDS);
+
+            topic.recover();
 
             executor.shutdown();
 
